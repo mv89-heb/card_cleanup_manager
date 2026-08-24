@@ -86,14 +86,6 @@ def safe_redirect() -> RedirectResponse:
     return RedirectResponse("/", status_code=303)
 
 
-def dashboard_context(request: Request, cards, services, audits, csrf_token: str | None = None) -> dict:
-    if csrf_token is None:
-        csrf_token = request.cookies.get("ccm_csrf")
-    if not csrf_token:
-        csrf_token = ensure_csrf_cookie(request, None)
-    return {"request": request, "cards": cards, "services": services, "audits": audits, "csrf_token": csrf_token}
-
-
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     with get_session() as session:
@@ -102,12 +94,11 @@ def dashboard(request: Request):
         audits = session.scalars(select(Audit).order_by(Audit.created_at.desc()).limit(20)).all()
 
     csrf_token = request.cookies.get("ccm_csrf")
-    if csrf_token:
-        return templates.TemplateResponse(request=request, name="index.html", context=dashboard_context(request, cards, services, audits, csrf_token))
-
-    response = templates.TemplateResponse(request=request, name="index.html", context=dashboard_context(request, cards, services, audits, ""))
-    csrf_token = ensure_csrf_cookie(request, response)
-    response.context["csrf_token"] = csrf_token
+    context = {"request": request, "cards": cards, "services": services, "audits": audits, "csrf_token": csrf_token or ""}
+    response = templates.TemplateResponse(request=request, name="index.html", context=context)
+    if not csrf_token:
+        token = ensure_csrf_cookie(request, response)
+        response.context["csrf_token"] = token
     return response
 
 
