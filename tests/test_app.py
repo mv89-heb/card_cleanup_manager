@@ -50,6 +50,7 @@ def test_add_card_with_csrf_succeeds():
         response = client.post(
             "/cards",
             data={"csrf_token": token, "brand": "Visa", "last4": "1234"},
+            follow_redirects=False,
         )
         assert response.status_code == 303
         dashboard = client.get("/")
