@@ -38,16 +38,9 @@ def seed_services() -> None:
         if session.scalar(select(Service.id).limit(1)) is not None:
             return
         for name, category, last4, subscription_status, cleanup_status, billing_url in SEED_SERVICES:
-            session.add(
-                Service(
-                    name=name,
-                    category=category,
-                    payment_last4=last4,
-                    subscription_status=subscription_status,
-                    cleanup_status=cleanup_status,
-                    billing_url=billing_url,
-                )
-            )
+            session.add(Service(name=name, category=category, payment_last4=last4,
+                                subscription_status=subscription_status,
+                                cleanup_status=cleanup_status, billing_url=billing_url))
         session.commit()
 
 
@@ -94,11 +87,21 @@ def dashboard(request: Request):
         audits = session.scalars(select(Audit).order_by(Audit.created_at.desc()).limit(20)).all()
 
     csrf_token = request.cookies.get("ccm_csrf")
-    context = {"request": request, "cards": cards, "services": services, "audits": audits, "csrf_token": csrf_token or ""}
-    response = templates.TemplateResponse(request=request, name="index.html", context=context)
-    if not csrf_token:
-        token = ensure_csrf_cookie(request, response)
-        response.context["csrf_token"] = token
+    if csrf_token:
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={"cards": cards, "services": services, "audits": audits, "csrf_token": csrf_token},
+        )
+
+    response = templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={"cards": cards, "services": services, "audits": audits, "csrf_token": ""},
+    )
+    # ensure_csrf_cookie needs the response so it can set the cookie.
+    token = ensure_csrf_cookie(request, response)
+    response.context["csrf_token"] = token
     return response
 
 
@@ -118,15 +121,9 @@ def add_card(request: Request, csrf_token: str = Form(...), brand: str = Form(..
 
 
 @app.post("/services")
-def add_service(
-    request: Request,
-    csrf_token: str = Form(...),
-    name: str = Form(...),
-    category: str = Form("Other"),
-    last4: str = Form(""),
-    billing_url: str = Form(""),
-    notes: str = Form(""),
-):
+def add_service(request: Request, csrf_token: str = Form(...), name: str = Form(...),
+                category: str = Form("Other"), last4: str = Form(""),
+                billing_url: str = Form(""), notes: str = Form("")):
     validate_csrf(request, csrf_token)
     try:
         name = clean_text(name, MAX_NAME_LENGTH, "Service name")
