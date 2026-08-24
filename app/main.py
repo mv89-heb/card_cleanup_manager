@@ -9,6 +9,7 @@ from sqlalchemy import select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import ALLOWED_HOSTS, MAX_BRAND_LENGTH, MAX_CATEGORY_LENGTH, MAX_NAME_LENGTH, MAX_NOTES_LENGTH, MAX_URL_LENGTH
+from .connectors.providers import PROVIDERS
 from .db import get_session, init_db
 from .models import Audit, Card, ScanResultRecord, Service
 from .scanner import scan_url
@@ -47,7 +48,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Card Cleanup Manager", version="1.1.0", lifespan=lifespan)
+app = FastAPI(title="Card Cleanup Manager", version="1.2.0", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 
@@ -77,8 +78,14 @@ def safe_redirect() -> RedirectResponse:
 
 
 def _scan_records(session):
-    rows = session.scalars(select(ScanResultRecord).order_by(ScanResultRecord.scanned_at.desc()).limit(50)).all()
-    return rows
+    return session.scalars(select(ScanResultRecord).order_by(ScanResultRecord.scanned_at.desc()).limit(50)).all()
+
+
+def _latest_scans(rows):
+    latest = {}
+    for row in rows:
+        latest.setdefault(row.service_id, row)
+    return list(latest.values())
 
 
 def _run_scan(service: Service, session) -> ScanResultRecord:
@@ -106,8 +113,23 @@ def dashboard(request: Request):
         services = session.scalars(select(Service).order_by(Service.name)).all()
         audits = session.scalars(select(Audit).order_by(Audit.created_at.desc()).limit(20)).all()
         scan_results = _scan_records(session)
+    latest_scans = _latest_scans(scan_results)
     csrf_token = get_or_create_csrf_token(request)
-    response = templates.TemplateResponse(request=request, name="index.html", context={"cards": cards, "services": services, "audits": audits, "scan_results": scan_results, "status_he": STATUS_HE, "scan_status_he": SCAN_STATUS_HE, "csrf_token": csrf_token})
+    response = templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "cards": cards,
+            "services": services,
+            "audits": audits,
+            "scan_results": scan_results,
+            "latest_scans": latest_scans,
+            "providers": PROVIDERS,
+            "status_he": STATUS_HE,
+            "scan_status_he": SCAN_STATUS_HE,
+            "csrf_token": csrf_token,
+        },
+    )
     ensure_csrf_cookie(request, response, csrf_token)
     return response
 
