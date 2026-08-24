@@ -17,7 +17,7 @@ from .config import (
 )
 from .db import get_session, init_db
 from .models import Audit, Card, Service
-from .security import ensure_csrf_cookie, validate_csrf, validate_url
+from .security import ensure_csrf_cookie, get_or_create_csrf_token, validate_csrf, validate_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
@@ -93,19 +93,7 @@ def dashboard(request: Request):
         services = session.scalars(select(Service).order_by(Service.name)).all()
         audits = session.scalars(select(Audit).order_by(Audit.created_at.desc()).limit(20)).all()
 
-    csrf_token = request.cookies.get("ccm_csrf")
-    if csrf_token:
-        return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={
-                "cards": cards,
-                "services": services,
-                "audits": audits,
-                "csrf_token": csrf_token,
-            },
-        )
-
+    csrf_token = get_or_create_csrf_token(request)
     response = templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -113,11 +101,10 @@ def dashboard(request: Request):
             "cards": cards,
             "services": services,
             "audits": audits,
-            "csrf_token": "",
+            "csrf_token": csrf_token,
         },
     )
-    token = ensure_csrf_cookie(request, response)
-    response.context["csrf_token"] = token
+    ensure_csrf_cookie(request, response)
     return response
 
 
