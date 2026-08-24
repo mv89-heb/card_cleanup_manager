@@ -1,0 +1,1 @@
+UX regression tests cover static asset references, local JavaScript dependencies, and CSRF hidden fields in POST forms.
