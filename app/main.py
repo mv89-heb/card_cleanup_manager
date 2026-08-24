@@ -87,21 +87,11 @@ def dashboard(request: Request):
         audits = session.scalars(select(Audit).order_by(Audit.created_at.desc()).limit(20)).all()
 
     csrf_token = request.cookies.get("ccm_csrf")
-    if csrf_token:
-        return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={"cards": cards, "services": services, "audits": audits, "csrf_token": csrf_token},
-        )
-
-    response = templates.TemplateResponse(
-        request=request,
-        name="index.html",
-        context={"cards": cards, "services": services, "audits": audits, "csrf_token": ""},
-    )
-    # ensure_csrf_cookie needs the response so it can set the cookie.
-    token = ensure_csrf_cookie(request, response)
-    response.context["csrf_token"] = token
+    context = {"request": request, "cards": cards, "services": services, "audits": audits, "csrf_token": csrf_token or ""}
+    response = templates.TemplateResponse(request=request, name="index.html", context=context)
+    if not csrf_token:
+        token = ensure_csrf_cookie(request, response)
+        response.context["csrf_token"] = token
     return response
 
 
