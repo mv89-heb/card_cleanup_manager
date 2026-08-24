@@ -8,16 +8,10 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .config import (
-    ALLOWED_HOSTS,
-    MAX_BRAND_LENGTH,
-    MAX_CATEGORY_LENGTH,
-    MAX_NAME_LENGTH,
-    MAX_NOTES_LENGTH,
-    MAX_URL_LENGTH,
-)
+from .config import ALLOWED_HOSTS, MAX_BRAND_LENGTH, MAX_CATEGORY_LENGTH, MAX_NAME_LENGTH, MAX_NOTES_LENGTH, MAX_URL_LENGTH
 from .db import get_session, init_db
-from .models import Audit, Card, Service
+from .models import Audit, Card, ScanResultRecord, Service
+from .scanner import scan_url
 from .security import ensure_csrf_cookie, get_or_create_csrf_token, validate_csrf, validate_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -33,6 +27,8 @@ SEED_SERVICES = [
 ]
 ALLOWED_CLEANUP_STATUSES = {"Needs review", "Requested", "Removed"}
 STATUS_FLOW = {"Needs review": "Requested", "Requested": "Removed", "Removed": "Needs review"}
+STATUS_HE = {"Needs review": "דורש בדיקה", "Requested": "בטיפול", "Removed": "הוסר"}
+SCAN_STATUS_HE = {"found": "נמצאו אינדיקציות", "no_findings": "לא נמצאו אינדיקציות", "login_required": "נדרשת הרשאה", "unsupported": "לא נתמך", "timeout": "פג זמן הסריקה", "error": "שגיאה"}
 
 
 def seed_services() -> None:
@@ -40,16 +36,7 @@ def seed_services() -> None:
         if session.scalar(select(Service.id).limit(1)) is not None:
             return
         for name, category, last4, subscription_status, cleanup_status, billing_url in SEED_SERVICES:
-            session.add(
-                Service(
-                    name=name,
-                    category=category,
-                    payment_last4=last4,
-                    subscription_status=subscription_status,
-                    cleanup_status=cleanup_status,
-                    billing_url=billing_url,
-                )
-            )
+            session.add(Service(name=name, category=category, payment_last4=last4, subscription_status=subscription_status, cleanup_status=cleanup_status, billing_url=billing_url))
         session.commit()
 
 
@@ -60,10 +47,8 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Card Cleanup Manager", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Card Cleanup Manager", version="1.1.0", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
-# Serve the production stylesheet and client-side UX assets from FastAPI.
-# Without this mount, /static/app.css returns 404 and the page renders as raw HTML.
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 
 
@@ -91,24 +76,38 @@ def safe_redirect() -> RedirectResponse:
     return RedirectResponse("/", status_code=303)
 
 
+def _scan_records(session):
+    rows = session.scalars(select(ScanResultRecord).order_by(ScanResultRecord.scanned_at.desc()).limit(50)).all()
+    return rows
+
+
+def _run_scan(service: Service, session) -> ScanResultRecord:
+    if not service.billing_url:
+        raise ValueError("לשירות אין כתובת Billing לסריקה")
+    result = scan_url(service.billing_url)
+    record = ScanResultRecord(
+        service_id=service.id,
+        url=result.url,
+        status=result.status,
+        http_status=result.http_status,
+        title=result.title,
+        findings=", ".join(result.findings),
+        message=result.message,
+    )
+    session.add(record)
+    session.add(Audit(service=service.name, action=f"סריקה → {SCAN_STATUS_HE.get(result.status, result.status)}"))
+    return record
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     with get_session() as session:
         cards = session.scalars(select(Card).order_by(Card.created_at.desc())).all()
         services = session.scalars(select(Service).order_by(Service.name)).all()
         audits = session.scalars(select(Audit).order_by(Audit.created_at.desc()).limit(20)).all()
-
+        scan_results = _scan_records(session)
     csrf_token = get_or_create_csrf_token(request)
-    response = templates.TemplateResponse(
-        request=request,
-        name="index.html",
-        context={
-            "cards": cards,
-            "services": services,
-            "audits": audits,
-            "csrf_token": csrf_token,
-        },
-    )
+    response = templates.TemplateResponse(request=request, name="index.html", context={"cards": cards, "services": services, "audits": audits, "scan_results": scan_results, "status_he": STATUS_HE, "scan_status_he": SCAN_STATUS_HE, "csrf_token": csrf_token})
     ensure_csrf_cookie(request, response, csrf_token)
     return response
 
@@ -121,7 +120,6 @@ def add_card(request: Request, csrf_token: str = Form(...), brand: str = Form(..
         last4 = clean_last4(last4, required=True)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
     with get_session() as session:
         session.add(Card(brand=brand, last4=last4))
         session.commit()
@@ -129,9 +127,7 @@ def add_card(request: Request, csrf_token: str = Form(...), brand: str = Form(..
 
 
 @app.post("/services")
-def add_service(request: Request, csrf_token: str = Form(...), name: str = Form(...),
-                category: str = Form("Other"), last4: str = Form(""),
-                billing_url: str = Form(""), notes: str = Form("")):
+def add_service(request: Request, csrf_token: str = Form(...), name: str = Form(...), category: str = Form("Other"), last4: str = Form(""), billing_url: str = Form(""), notes: str = Form("")):
     validate_csrf(request, csrf_token)
     try:
         name = clean_text(name, MAX_NAME_LENGTH, "Service name")
@@ -143,7 +139,6 @@ def add_service(request: Request, csrf_token: str = Form(...), name: str = Form(
             raise ValueError("Notes are too long")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
     with get_session() as session:
         session.add(Service(name=name, category=category, payment_last4=last4, billing_url=billing_url, notes=notes))
         session.commit()
@@ -155,7 +150,6 @@ def update_status(service_id: int, request: Request, csrf_token: str = Form(...)
     validate_csrf(request, csrf_token)
     if status not in ALLOWED_CLEANUP_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid cleanup status")
-
     with get_session() as session:
         service = session.get(Service, service_id)
         if service is None:
@@ -176,6 +170,36 @@ def cycle_status(service_id: int, request: Request, csrf_token: str = Form(...))
         next_status = STATUS_FLOW.get(service.cleanup_status, "Needs review")
         service.cleanup_status = next_status
         session.add(Audit(service=service.name, action=f"Status → {next_status}"))
+        session.commit()
+    return safe_redirect()
+
+
+@app.post("/scan/{service_id}")
+def scan_service(service_id: int, request: Request, csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    with get_session() as session:
+        service = session.get(Service, service_id)
+        if service is None:
+            raise HTTPException(status_code=404, detail="Service not found")
+        try:
+            _run_scan(service, session)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session.commit()
+    return safe_redirect()
+
+
+@app.post("/scan-all")
+def scan_all(request: Request, csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    with get_session() as session:
+        services = session.scalars(select(Service).order_by(Service.name)).all()
+        for service in services:
+            if service.billing_url:
+                try:
+                    _run_scan(service, session)
+                except ValueError:
+                    continue
         session.commit()
     return safe_redirect()
 
