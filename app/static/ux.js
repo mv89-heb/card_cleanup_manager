@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     const apply=()=>{
       const q=input.value.trim().toLowerCase();const filter=bar.querySelector('.filter-pill.active')?.dataset.filter||'all';
       document.querySelectorAll('.service-row').forEach(row=>{const text=row.textContent.toLowerCase();const raw=row.querySelector('.service-state')?.textContent.trim()||'';const okSearch=!q||text.includes(q);const okFilter=filter==='all'||raw===labels[filter]||raw===filter;row.hidden=!(okSearch&&okFilter);});
-      document.querySelectorAll('#services tbody tr').forEach(row=>{const text=row.textContent.toLowerCase();const tag=row.querySelector('.tag');const raw=tag?.textContent.trim()||'';row.hidden=!!(row.querySelector('.tag')&&(!(!q||text.includes(q))||!(filter==='all'||raw===labels[filter]||raw===filter)));});
+      document.querySelectorAll('#services tbody tr').forEach(row=>{const text=row.textContent.toLowerCase();const tag=row.querySelector('.tag');const raw=tag?.textContent.trim()||'';row.hidden=!!(tag&&(!(!q||text.includes(q))||!(filter==='all'||raw===labels[filter]||raw===filter)));});
     };
     input.addEventListener('input',apply);pills.forEach(p=>p.addEventListener('click',()=>{pills.forEach(x=>x.classList.remove('active'));p.classList.add('active');apply()}));
   }
