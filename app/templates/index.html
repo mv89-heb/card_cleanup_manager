@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Card Cleanup Manager</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark">CC</div>
+    <div><strong>Card Cleanup</strong><span>Manager</span></div>
+  </div>
+  <nav>
+    <a class="active" href="#dashboard">◈ <span>סקירה</span></a>
+    <a href="#cards">▣ <span>כרטיסים</span></a>
+    <a href="#services">◎ <span>שירותים</span></a>
+    <a href="#cleanup">✓ <span>מרכז ניקוי</span></a>
+    <a href="#security">⌁ <span>פרטיות ואבטחה</span></a>
+  </nav>
+  <div class="sidebar-note">
+    <div class="shield">✓</div>
+    <b>Local-first</b>
+    <p>הנתונים נשמרים מקומית. מספרי כרטיס מלאים אינם נשמרים.</p>
+  </div>
+</aside>
+
+<main class="content">
+<header class="topbar">
+  <div>
+    <div class="eyebrow">מרכז שליטה</div>
+    <h1>ניקוי אמצעי תשלום</h1>
+    <p>מצא, נהל ועקוב אחר מקומות שבהם הכרטיס שלך עשוי להיות שמור.</p>
+  </div>
+  <div class="top-actions">
+    <span class="local-badge"><i></i> מערכת מקומית</span>
+  </div>
+</header>
+
+<section id="dashboard" class="view">
+<div class="kpis">
+  <div class="kpi"><span class="kpi-icon blue">▣</span><div><small>כרטיסים</small><strong>{{ cards|length }}</strong></div></div>
+  <div class="kpi"><span class="kpi-icon purple">◎</span><div><small>שירותים</small><strong>{{ services|length }}</strong></div></div>
+  <div class="kpi"><span class="kpi-icon amber">!</span><div><small>דורשים טיפול</small><strong>{{ services|selectattr('cleanup_status','ne','Removed')|list|length }}</strong></div></div>
+  <div class="kpi"><span class="kpi-icon green">✓</span><div><small>הוסרו</small><strong>{{ services|selectattr('cleanup_status','equalto','Removed')|list|length }}</strong></div></div>
+</div>
+
+<div class="layout-2">
+<section class="panel" id="cleanup">
+  <div class="panel-head"><div><h2>מרכז ניקוי</h2><p>הפעולות שדורשות את תשומת הלב שלך</p></div><span class="count-pill">{{ services|length }} שירותים</span></div>
+  <div class="service-list">
+  {% for x in services %}
+    <article class="service-row">
+      <div class="service-icon">{{ x.name[:1]|upper }}</div>
+      <div class="service-main"><strong>{{ x.name }}</strong><span>{{ x.category }}{% if x.payment_last4 %} · •••• {{ x.payment_last4 }}{% endif %}</span></div>
+      <div class="service-state"><span class="dot {% if x.cleanup_status=='Removed' %}done{% elif x.cleanup_status=='Requested' %}pending{% else %}warn{% endif %}"></span>{{ x.cleanup_status }}</div>
+      <div class="service-actions">
+        {% if x.billing_url %}<a href="{{ x.billing_url }}" target="_blank" rel="noopener" class="ghost">פתח</a>{% endif %}
+        <form method="post" action="/services/{{ x.id }}/status">
+          <input type="hidden" name="status" value="{% if x.cleanup_status=='Removed' %}Needs review{% else %}Requested{% endif %}">
+          <button class="primary">{% if x.cleanup_status=='Removed' %}בדיקה{% else %}טפל{% endif %}</button>
+        </form>
+      </div>
+    </article>
+  {% else %}
+    <div class="empty">אין שירותים במערכת.</div>
+  {% endfor %}
+  </div>
+</section>
+
+<section class="panel" id="cards">
+  <div class="panel-head"><div><h2>הכרטיסים שלך</h2><p>מוצגים 4 ספרות אחרונות בלבד</p></div></div>
+  <div class="cards-grid">
+  {% for c in cards %}
+    <div class="credit-card">
+      <div class="card-top"><span>{{ c.brand }}</span><span class="contactless">)))</span></div>
+      <div class="card-number">•••• &nbsp; •••• &nbsp; •••• &nbsp; {{ c.last4 }}</div>
+      <div class="card-bottom"><span>PAYMENT METHOD</span><b>{{ c.brand }}</b></div>
+    </div>
+  {% else %}
+    <div class="empty">עדיין לא נוסף כרטיס.</div>
+  {% endfor %}
+  </div>
+  <form method="post" action="/cards" class="add-form">
+    <input name="brand" placeholder="סוג כרטיס, למשל Mastercard" required>
+    <input name="last4" maxlength="4" placeholder="4 ספרות אחרונות" required>
+    <button class="primary">+ הוסף כרטיס</button>
+  </form>
+</section>
+</div>
+
+<section class="panel" id="services">
+  <div class="panel-head"><div><h2>כל השירותים</h2><p>מעקב מרוכז אחר חשבונות וספקים</p></div></div>
+  <div class="table-wrap"><table>
+  <thead><tr><th>שירות</th><th>אמצעי תשלום</th><th>מנוי</th><th>סטטוס ניקוי</th><th>פעולה</th></tr></thead>
+  <tbody>
+  {% for x in services %}
+  <tr>
+    <td><b>{{ x.name }}</b><small>{{ x.category }}</small></td>
+    <td>{% if x.payment_last4 %}•••• {{ x.payment_last4 }}{% else %}לא ידוע{% endif %}</td>
+    <td>{{ x.subscription_status }}</td>
+    <td><span class="tag">{{ x.cleanup_status }}</span></td>
+    <td>{% if x.billing_url %}<a href="{{ x.billing_url }}" target="_blank" rel="noopener" class="text-link">ניהול Billing ↗</a>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody></table></div>
+</section>
+
+<section class="panel security" id="security">
+  <div class="security-icon">⌁</div>
+  <div><h2>פרטיות ואבטחה</h2><p>המערכת תוכננה כך שמידע רגיש לא נשמר שלא לצורך.</p>
+  <div class="security-points"><span>✓ ללא מספר כרטיס מלא</span><span>✓ ללא סיסמאות</span><span>✓ DB מקומי</span><span>✓ פעולות חיצוניות בשליטתך</span></div></div>
+</section>
+</section>
+</main>
+</div>
+</body>
+</html>
