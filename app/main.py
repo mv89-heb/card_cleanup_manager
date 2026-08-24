@@ -17,7 +17,7 @@ from .config import (
 )
 from .db import get_session, init_db
 from .models import Audit, Card, Service
-from .security import ensure_csrf_cookie, validate_csrf, validate_url
+from .security import ensure_csrf_cookie, get_or_create_csrf_token, validate_csrf, validate_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
@@ -38,9 +38,16 @@ def seed_services() -> None:
         if session.scalar(select(Service.id).limit(1)) is not None:
             return
         for name, category, last4, subscription_status, cleanup_status, billing_url in SEED_SERVICES:
-            session.add(Service(name=name, category=category, payment_last4=last4,
-                                subscription_status=subscription_status,
-                                cleanup_status=cleanup_status, billing_url=billing_url))
+            session.add(
+                Service(
+                    name=name,
+                    category=category,
+                    payment_last4=last4,
+                    subscription_status=subscription_status,
+                    cleanup_status=cleanup_status,
+                    billing_url=billing_url,
+                )
+            )
         session.commit()
 
 
@@ -86,12 +93,18 @@ def dashboard(request: Request):
         services = session.scalars(select(Service).order_by(Service.name)).all()
         audits = session.scalars(select(Audit).order_by(Audit.created_at.desc()).limit(20)).all()
 
-    csrf_token = request.cookies.get("ccm_csrf")
-    context = {"request": request, "cards": cards, "services": services, "audits": audits, "csrf_token": csrf_token or ""}
-    response = templates.TemplateResponse(request=request, name="index.html", context=context)
-    if not csrf_token:
-        token = ensure_csrf_cookie(request, response)
-        response.context["csrf_token"] = token
+    csrf_token = get_or_create_csrf_token(request)
+    response = templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "cards": cards,
+            "services": services,
+            "audits": audits,
+            "csrf_token": csrf_token,
+        },
+    )
+    ensure_csrf_cookie(request, response, csrf_token)
     return response
 
 

@@ -7,10 +7,14 @@ from starlette.responses import Response
 from .config import CSRF_COOKIE, CSRF_MAX_AGE
 
 
-def ensure_csrf_cookie(request: Request, response: Response) -> str:
-    token = request.cookies.get(CSRF_COOKIE)
-    if not token:
-        token = secrets.token_urlsafe(32)
+def get_or_create_csrf_token(request: Request) -> str:
+    return request.cookies.get(CSRF_COOKIE) or secrets.token_urlsafe(32)
+
+
+def ensure_csrf_cookie(request: Request, response: Response, token: str | None = None) -> str:
+    existing = request.cookies.get(CSRF_COOKIE)
+    token = existing or token or secrets.token_urlsafe(32)
+    if not existing:
         response.set_cookie(
             CSRF_COOKIE,
             token,
