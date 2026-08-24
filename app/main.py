@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -20,7 +21,8 @@ from .models import Audit, Card, Service
 from .security import ensure_csrf_cookie, get_or_create_csrf_token, validate_csrf, validate_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
+APP_DIR = BASE_DIR / "app"
+templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 SEED_SERVICES = [
     ("Claude", "AI", "2689", "Canceled", "Support required", "https://support.claude.com/en/"),
@@ -60,6 +62,9 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Card Cleanup Manager", version="1.0.0", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
+# Serve the production stylesheet and client-side UX assets from FastAPI.
+# Without this mount, /static/app.css returns 404 and the page renders as raw HTML.
+app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 
 
 def clean_text(value: str, maximum: int, field: str) -> str:
