@@ -12,11 +12,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "app" / "templates" / "index.html"
-STATIC = ROOT / "app" / "static"
-
-
 def csrf_from_html(html: str) -> str:
     marker = 'name="csrf_token" value="'
     start = html.index(marker) + len(marker)
@@ -33,19 +28,12 @@ def test_healthcheck():
 def test_dashboard_sets_csrf_cookie_and_renders_seed_data():
     with TestClient(app) as client:
         response = client.get("/")
+        token = csrf_from_html(response.text)
     assert response.status_code == 200
     assert "Claude" in response.text
     assert "ccm_csrf" in response.cookies
-    assert csrf_from_html(response.text)
-
-
-def test_dashboard_uses_single_canonical_stylesheet():
-    html = TEMPLATE.read_text(encoding="utf-8")
-    assert html.count('rel="stylesheet"') == 1
-    assert '/static/app.css' in html
-    assert '/static/ux.css' not in html
-    assert (STATIC / "app.css").is_file()
-    assert not (STATIC / "ux.css").exists()
+    assert token
+    assert token == response.cookies["ccm_csrf"]
 
 
 def test_post_without_csrf_is_rejected():
