@@ -104,7 +104,7 @@ def dashboard(request: Request):
             "csrf_token": csrf_token,
         },
     )
-    ensure_csrf_cookie(request, response)
+    ensure_csrf_cookie(request, response, csrf_token)
     return response
 
 
