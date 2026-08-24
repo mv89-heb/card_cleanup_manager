@@ -11,9 +11,10 @@ def get_or_create_csrf_token(request: Request) -> str:
     return request.cookies.get(CSRF_COOKIE) or secrets.token_urlsafe(32)
 
 
-def ensure_csrf_cookie(request: Request, response: Response) -> str:
-    token = get_or_create_csrf_token(request)
-    if not request.cookies.get(CSRF_COOKIE):
+def ensure_csrf_cookie(request: Request, response: Response, token: str | None = None) -> str:
+    existing = request.cookies.get(CSRF_COOKIE)
+    token = existing or token or secrets.token_urlsafe(32)
+    if not existing:
         response.set_cookie(
             CSRF_COOKIE,
             token,
